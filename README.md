@@ -1,6 +1,6 @@
 # tcli
 
-A command-line client for Microsoft Teams. List chats and send messages from your terminal.
+A command-line client for Microsoft Teams. List chats and send messages from your terminal. No thrills, does one thing well.
 
 ## Install
 
@@ -12,7 +12,7 @@ This builds the binary and copies it to `~/.local/bin/tcli`. Make sure `~/.local
 
 ## Prerequisites: Azure App Registration
 
-You need to register an app in Azure AD (Entra ID) to get API access:
+You need to register an app in Azure AD (Entra ID) to get API access. This is essential to establish connection to your teams:
 
 1. Go to [Azure Portal > App registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
 2. Click **New registration**
@@ -25,6 +25,7 @@ You need to register an app in Azure AD (Entra ID) to get API access:
    - `Chat.Read`
    - `ChatMessage.Send`
 9. Click **Grant admin consent** (or ask your admin)
+10. In Administrator > Authentication go to Configuration section. Set "Allow public client flows" to Yes.
 
 ## Install
 
