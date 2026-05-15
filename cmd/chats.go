@@ -6,6 +6,7 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/piotrwolkowski/tcli/config"
 	"github.com/piotrwolkowski/tcli/internal/graph"
 	"github.com/spf13/cobra"
 )
@@ -36,11 +37,17 @@ func runChats(cmd *cobra.Command, args []string) error {
 		return enc.Encode(chats)
 	}
 
+	aliases, _ := config.LoadAliases()
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "CHAT ID\tTYPE\tNAME")
+	fmt.Fprintln(w, "ALIAS\tCHAT ID\tTYPE\tNAME")
 	for _, chat := range chats {
 		name := graph.ChatDisplayName(chat)
-		fmt.Fprintf(w, "%s\t%s\t%s\n", chat.ID, chat.ChatType, name)
+		alias := aliases.AliasFor(chat.ID)
+		if alias == "" {
+			alias = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", alias, chat.ID, chat.ChatType, name)
 	}
 	return w.Flush()
 }

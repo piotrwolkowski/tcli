@@ -6,19 +6,22 @@ import (
 	"os"
 	"strings"
 
+	"github.com/piotrwolkowski/tcli/config"
 	"github.com/piotrwolkowski/tcli/internal/graph"
 	"github.com/spf13/cobra"
 )
 
 var sendCmd = &cobra.Command{
-	Use:   "send <chat-id> <message>",
+	Use:   "send <chat-id-or-alias> <message>",
 	Short: "Send a message to a Teams chat",
-	Long: `Send a message to a Teams chat. The message can be provided as an argument or piped via stdin.
+	Long: `Send a message to a Teams chat. The first argument may be a raw chat ID or
+an alias defined via "tcli alias set". The message can be provided as an
+argument or piped via stdin.
 
 Examples:
   tcli send 19:abc123@thread.v2 "Hello from the CLI"
-  echo "Build passed" | tcli send 19:abc123@thread.v2 -
-  some-command | tcli send 19:abc123@thread.v2 -`,
+  tcli send team-standup "Build passed"
+  echo "Build passed" | tcli send team-standup -`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runSend,
 }
@@ -29,6 +32,9 @@ func init() {
 
 func runSend(cmd *cobra.Command, args []string) error {
 	chatID := args[0]
+	if aliases, err := config.LoadAliases(); err == nil {
+		chatID = aliases.Resolve(chatID)
+	}
 
 	var message string
 	if len(args) == 2 && args[1] != "-" {
