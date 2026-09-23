@@ -3,11 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"os"
 	"regexp"
 	"strings"
 
-	"github.com/piotrwolkowski/tcli/config"
 	"github.com/piotrwolkowski/tcli/internal/graph"
 	"github.com/spf13/cobra"
 )
@@ -35,9 +35,9 @@ func init() {
 }
 
 func runReplies(cmd *cobra.Command, args []string) error {
-	chatID := args[0]
-	if aliases, err := config.LoadAliases(); err == nil {
-		chatID = aliases.Resolve(chatID)
+	chatID, err := resolveChat(args[0])
+	if err != nil {
+		return err
 	}
 
 	client := graph.NewClient()
@@ -73,12 +73,28 @@ func runReplies(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var htmlTagRe = regexp.MustCompile(`<[^>]+>`)
-
 func renderBody(b graph.MessageBodyFull) string {
-	content := b.Content
 	if strings.EqualFold(b.ContentType, "html") {
-		content = htmlTagRe.ReplaceAllString(content, "")
+		return htmlToText(b.Content)
 	}
-	return strings.TrimSpace(content)
+	return strings.TrimSpace(b.Content)
+}
+
+var (
+	htmlBreakRe = regexp.MustCompile(`(?i)<br\s*/?>|</(?:p|div|li)\s*>`)
+	htmlItemRe  = regexp.MustCompile(`(?i)<li(?:\s[^>]*)?>`)
+	htmlTagRe   = regexp.MustCompile(`<[^>]+>`)
+	blankRunRe  = regexp.MustCompile(`\n{3,}`)
+)
+
+// htmlToText renders a Teams HTML message body as readable plain text,
+// keeping line and paragraph breaks and list items.
+func htmlToText(s string) string {
+	s = htmlBreakRe.ReplaceAllString(s, "\n")
+	s = htmlItemRe.ReplaceAllString(s, "- ")
+	s = htmlTagRe.ReplaceAllString(s, "")
+	s = html.UnescapeString(s)
+	s = strings.ReplaceAll(s, "\u00a0", " ")
+	s = blankRunRe.ReplaceAllString(s, "\n\n")
+	return strings.TrimSpace(s)
 }
