@@ -58,6 +58,8 @@ tcli login
 
 This prints a URL and a code. Open the URL in any browser (it doesn't have to be on the same machine), enter the code, and sign in with your Microsoft account. Tokens are cached in `~/.config/tcli/tokens.json` and refreshed automatically; run `tcli login` again if you're told your session has expired.
 
+Run `tcli logout` to remove the cached tokens.
+
 Check it works:
 
 ```bash

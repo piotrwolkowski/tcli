@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/piotrwolkowski/tcli/config"
@@ -34,12 +35,18 @@ type tokenResponse struct {
 	ErrorDesc    string `json:"error_description"`
 }
 
+// authorityHost is a var so tests can point it at a local server.
+var authorityHost = "https://login.microsoftonline.com"
+
+// defaultDeviceCodeTTL applies when the server omits expires_in.
+const defaultDeviceCodeTTL = 15 * time.Minute
+
 func deviceCodeEndpoint(tenantID string) string {
-	return "https://login.microsoftonline.com/" + tenantID + "/oauth2/v2.0/devicecode"
+	return authorityHost + "/" + tenantID + "/oauth2/v2.0/devicecode"
 }
 
 func tokenEndpoint(tenantID string) string {
-	return "https://login.microsoftonline.com/" + tenantID + "/oauth2/v2.0/token"
+	return authorityHost + "/" + tenantID + "/oauth2/v2.0/token"
 }
 
 // Login performs the OAuth2 device code flow and caches the resulting tokens.
@@ -58,7 +65,10 @@ func Login(ctx context.Context) error {
 		return fmt.Errorf("requesting device code: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading device code response: %w", err)
+	}
 
 	var dcResp deviceCodeResponse
 	if err := json.Unmarshal(body, &dcResp); err != nil {
@@ -78,7 +88,12 @@ func Login(ctx context.Context) error {
 	if interval == 0 {
 		interval = 5
 	}
-	deadline := time.Now().Add(time.Duration(dcResp.ExpiresIn) * time.Second)
+	ttl := time.Duration(dcResp.ExpiresIn) * time.Second
+	if ttl <= 0 {
+		ttl = defaultDeviceCodeTTL
+	}
+	deadline := time.Now().Add(ttl)
+	warned := false
 
 	for time.Now().Before(deadline) {
 		select {
@@ -93,6 +108,11 @@ func Login(ctx context.Context) error {
 			"device_code": {dcResp.DeviceCode},
 		})
 		if err != nil {
+			// Transient failure: keep polling, but tell the user once.
+			if !warned {
+				fmt.Fprintf(os.Stderr, "warning: token poll failed: %v (retrying)\n", err)
+				warned = true
+			}
 			continue
 		}
 		switch tok.Error {
@@ -101,6 +121,10 @@ func Login(ctx context.Context) error {
 		case "slow_down":
 			interval += 5
 			continue
+		case "expired_token":
+			return fmt.Errorf("device code expired — run: tcli login again")
+		case "authorization_declined":
+			return fmt.Errorf("sign-in was declined")
 		case "":
 			// success
 		default:
@@ -153,8 +177,12 @@ func GetToken(ctx context.Context) (string, error) {
 		"refresh_token": {cache.RefreshToken},
 		"scope":         {graphScopes},
 	})
-	if err != nil || tok.Error != "" {
-		return "", fmt.Errorf("session expired — run: tcli login")
+	if err != nil {
+		// Network/server problem, not a rejected session.
+		return "", fmt.Errorf("refreshing token: %w", err)
+	}
+	if tok.Error != "" {
+		return "", fmt.Errorf("session expired (%s) — run: tcli login", tok.Error)
 	}
 
 	cache.AccessToken = tok.AccessToken
@@ -162,22 +190,46 @@ func GetToken(ctx context.Context) (string, error) {
 		cache.RefreshToken = tok.RefreshToken // servers may rotate refresh tokens
 	}
 	cache.ExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
-	_ = SaveCache(cache)
+	if err := SaveCache(cache); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not save refreshed token: %v\n", err)
+	}
 
 	return cache.AccessToken, nil
 }
 
+// postToken calls the token endpoint. A returned error means a transport or
+// server problem; an OAuth error (4xx with JSON error body) is returned in
+// tok.Error with a nil error.
 func postToken(tenantID string, values url.Values) (*tokenResponse, error) {
 	resp, err := http.PostForm(tokenEndpoint(tenantID), values)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading token response: %w", err)
+	}
 
 	var tok tokenResponse
-	if err := json.Unmarshal(body, &tok); err != nil {
-		return nil, fmt.Errorf("parsing token response: %w", err)
+	parseErr := json.Unmarshal(body, &tok)
+
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing token response (HTTP %d): %w", resp.StatusCode, parseErr)
+		}
+		return &tok, nil
+	case resp.StatusCode >= 400 && resp.StatusCode < 500 && parseErr == nil && tok.Error != "":
+		return &tok, nil
+	default:
+		return nil, fmt.Errorf("token endpoint returned HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
-	return &tok, nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
