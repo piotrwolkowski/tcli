@@ -8,22 +8,25 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/piotrwolkowski/tcli/internal/auth"
 )
 
 const (
-	baseURL    = "https://graph.microsoft.com/v1.0"
-	maxRetries = 3
+	defaultBaseURL = "https://graph.microsoft.com/v1.0"
+	maxRetries     = 3
 )
 
 type Client struct {
-	http *http.Client
+	http    *http.Client
+	baseURL string
+	token   func(context.Context) (string, error)
 }
 
 func NewClient() *Client {
-	return &Client{http: &http.Client{}}
+	return &Client{http: &http.Client{}, baseURL: defaultBaseURL, token: auth.GetToken}
 }
 
 type graphErrorBody struct {
@@ -34,7 +37,7 @@ type graphErrorBody struct {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	token, err := auth.GetToken(ctx)
+	token, err := c.token(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +51,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*
 		}
 	}
 
-	reqURL := baseURL + path
+	reqURL := c.resolve(path)
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		var bodyReader io.Reader
@@ -93,6 +96,38 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*
 	return nil, fmt.Errorf("request failed after %d retries", maxRetries)
 }
 
+// resolve turns a relative path into a full URL; absolute URLs (e.g.
+// @odata.nextLink) are used as-is.
+func (c *Client) resolve(path string) string {
+	if strings.HasPrefix(path, "https://") || strings.HasPrefix(path, "http://") {
+		return path
+	}
+	return c.baseURL + path
+}
+
+// getJSON GETs path (relative or absolute) and decodes the response into v.
+func (c *Client) getJSON(ctx context.Context, path string, v any) error {
+	resp, err := c.do(ctx, "GET", path, nil)
+	if err != nil {
+		return err
+	}
+	return decodeJSON(resp, v)
+}
+
+// decodeJSON reads and closes resp.Body, unmarshalling it into v.
+func decodeJSON(resp *http.Response, v any) error {
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+	if err := json.Unmarshal(body, v); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+	return nil
+}
+
 // retryAfter returns how long to wait before the next retry, using the
 // Retry-After response header when present and falling back to exponential backoff.
 func retryAfter(resp *http.Response, attempt int) time.Duration {
@@ -109,15 +144,27 @@ func parseGraphError(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
 
 	var ge graphErrorBody
-	if err := json.Unmarshal(body, &ge); err == nil && ge.Error.Code != "" {
-		switch resp.StatusCode {
-		case 401:
-			return fmt.Errorf("unauthorized — session may have expired, run: tcli login")
-		case 403:
-			return fmt.Errorf("permission denied — ensure Chat.Read and ChatMessage.Send are granted in your Azure app registration")
+	parsed := json.Unmarshal(body, &ge) == nil && ge.Error.Code != ""
+
+	switch resp.StatusCode {
+	case 401:
+		return fmt.Errorf("unauthorized — session may have expired, run: tcli login")
+	case 403:
+		detail := ""
+		if parsed {
+			detail = fmt.Sprintf(" (%s: %s)", ge.Error.Code, ge.Error.Message)
 		}
-		return fmt.Errorf("Graph API error (%s): %s", ge.Error.Code, ge.Error.Message)
+		return fmt.Errorf("permission denied%s — check the chat ID/alias and that Chat.Read and ChatMessage.Send are granted in your Azure app registration", detail)
+	case 404:
+		detail := ""
+		if parsed {
+			detail = fmt.Sprintf(" (%s: %s)", ge.Error.Code, ge.Error.Message)
+		}
+		return fmt.Errorf("not found%s — check the chat ID or alias", detail)
 	}
 
+	if parsed {
+		return fmt.Errorf("Graph API error (%s): %s", ge.Error.Code, ge.Error.Message)
+	}
 	return fmt.Errorf("Graph API error %d: %s", resp.StatusCode, string(body))
 }

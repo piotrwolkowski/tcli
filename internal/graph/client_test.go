@@ -39,14 +39,34 @@ func TestParseGraphError(t *testing.T) {
 			wantSubstr: "Azure app registration",
 		},
 		{
-			name:       "other error includes code and message",
+			name:       "401 without Graph body still returns login hint",
+			resp:       makeResp(401, ``),
+			wantSubstr: "tcli login",
+		},
+		{
+			name:       "403 includes Graph code and message",
+			resp:       makeResp(403, `{"error":{"code":"Forbidden","message":"Insufficient privileges."}}`),
+			wantSubstr: "permission denied (Forbidden: Insufficient privileges.)",
+		},
+		{
+			name:       "403 without Graph body still returns permission hint",
+			resp:       makeResp(403, `nope`),
+			wantSubstr: "Chat.Read and ChatMessage.Send",
+		},
+		{
+			name:       "404 returns not found hint",
 			resp:       makeResp(404, `{"error":{"code":"ItemNotFound","message":"No chat with ID xyz."}}`),
-			wantSubstr: "ItemNotFound",
+			wantSubstr: "not found (ItemNotFound: No chat with ID xyz.) — check the chat ID or alias",
+		},
+		{
+			name:       "other error includes code and message",
+			resp:       makeResp(400, `{"error":{"code":"BadRequest","message":"Invalid filter clause."}}`),
+			wantSubstr: "BadRequest",
 		},
 		{
 			name:       "other error includes Graph message text",
-			resp:       makeResp(404, `{"error":{"code":"ItemNotFound","message":"No chat with ID xyz."}}`),
-			wantSubstr: "No chat with ID xyz",
+			resp:       makeResp(400, `{"error":{"code":"BadRequest","message":"Invalid filter clause."}}`),
+			wantSubstr: "Invalid filter clause",
 		},
 		{
 			name:       "non-JSON body falls back to status code format",
