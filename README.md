@@ -1,129 +1,125 @@
 # tcli
 
-A command-line client for Microsoft Teams. List chats and send messages from your terminal. No thrills, does one thing well.
+A command-line client for Microsoft Teams. List chats, send messages and read replies from your terminal. No frills, does one thing well.
 
-## Install
+## Prerequisites
+
+- [Go](https://go.dev/dl/) 1.25 or newer, and `make`
+- A Microsoft 365 work or school account with Teams
+- Permission to register an app in your organisation's Azure AD (Entra ID), or an admin who can do it for you
+
+## 1. Install
 
 ```bash
 make install
 ```
 
-This builds the binary and copies it to `~/.local/bin/tcli`. Make sure `~/.local/bin` is in your `PATH`.
+This builds the binary and copies it to `~/.local/bin/tcli`. If `~/.local/bin` is not on your `PATH`, add it (e.g. in `~/.bashrc`):
 
-## Prerequisites: Azure App Registration
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
 
-You need to register an app in Azure AD (Entra ID) to get API access. This is essential to establish connection to your teams:
+## 2. Register an Azure app (one-time)
 
-1. Go to [Azure Portal > App registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
-2. Click **New registration**
-3. Name it something like "tcli"
-4. Under **Supported account types**, choose the option that matches your org
-5. Under **Redirect URI**, select **Public client/native** and enter: `https://login.microsoftonline.com/common/oauth2/nativeclient`
-6. Click **Register**
-7. Note the **Application (client) ID** and **Directory (tenant) ID** from the overview page
-8. Go to **API permissions > Add a permission > Microsoft Graph > Delegated permissions** and add:
+tcli talks to Microsoft Graph, which requires an app registration in your tenant.
+
+1. Open [Azure Portal > App registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) and click **New registration**.
+2. Name it (e.g. `tcli`), leave **Supported account types** as **Single tenant**, leave **Redirect URI** empty, and click **Register**.
+3. On the app's **Overview** page, copy the **Application (client) ID** and **Directory (tenant) ID** — you'll need both in step 3.
+4. Go to **API permissions > Add a permission > Microsoft Graph > Delegated permissions** and add:
    - `Chat.Read`
    - `ChatMessage.Send`
-9. Click **Grant admin consent** (or ask your admin)
-10. In Administrator > Authentication go to Configuration section. Set "Allow public client flows" to Yes.
 
-## Install
+   Keep the default `User.Read` permission — `tcli replies` needs it.
+5. Go to **Authentication**, find **Allow public client flows** (under *Advanced settings*), set it to **Yes**, and click **Save**. Device-code login fails without this.
+6. *(Only if your organisation blocks user consent)* back in **API permissions**, click **Grant admin consent**, or ask an admin to do it. Otherwise you'll simply be asked to consent the first time you log in.
 
-```
-make install
-```
-
-## Setup
-
-Configure your credentials:
+## 3. Configure
 
 ```bash
 tcli config
 ```
 
-Make sure ~/.local/bin is in your PATH. If not: export PATH="$HOME/.local/bin:$PATH".
+This prompts for the Client ID and Tenant ID from step 2 and saves them to `~/.config/tcli/config.json`.
 
-This prompts for your Client ID and Tenant ID and saves them to `~/.config/tcli/config.json`.
-
-Alternatively, use environment variables:
+Alternatively, set environment variables (these take precedence over the config file):
 
 ```bash
 export TCLI_CLIENT_ID="your-client-id"
 export TCLI_TENANT_ID="your-tenant-id"
 ```
 
-## Login
-
-Authenticate using the device code flow:
+## 4. Log in
 
 ```bash
 tcli login
 ```
 
-This prints a URL and a code. Open the URL in any browser, enter the code, and sign in with your Microsoft account. The token is cached at `~/.config/tcli/tokens.json`.
+This prints a URL and a code. Open the URL in any browser (it doesn't have to be on the same machine), enter the code, and sign in with your Microsoft account. Tokens are cached in `~/.config/tcli/tokens.json` and refreshed automatically; run `tcli login` again if you're told your session has expired.
+
+Check it works:
+
+```bash
+tcli chats
+```
 
 ## Usage
 
 ### List chats
 
 ```bash
-tcli chats
+tcli chats          # table: alias, chat ID, type, name
+tcli chats --json   # machine-readable output
 ```
 
-Output is a table with chat ID, type, and name. Use `--json` for machine-readable output:
+### Aliases
+
+Chat IDs are long (`19:abc123...@thread.v2`). Give the chats you use often a short name:
 
 ```bash
-tcli chats --json
+tcli alias set standup 19:abc123@thread.v2
+tcli alias list
+tcli alias rm standup
 ```
+
+Aliases are stored in `~/.config/tcli/aliases.json` and work anywhere a chat ID is accepted.
 
 ### Send a message
 
-Send inline:
+```bash
+tcli send standup "Hello from the CLI"
+```
+
+Pipe from stdin with `-`:
 
 ```bash
-tcli send <chat-id> "Hello from the CLI"
+echo "Build passed" | tcli send standup -
+kubectl get pods | tcli send standup -
 ```
 
-Pipe from stdin:
+Teams collapses newlines in plain-text messages. Use `--html` when the message needs structure:
 
 ```bash
-echo "Build passed" | tcli send <chat-id> -
+tcli send standup --html "<b>Build passed</b><br>all green"
 ```
 
-Pipe command output:
+### Read replies
+
+Show messages posted in a chat since your last message:
 
 ```bash
-kubectl get pods | tcli send <chat-id> -
+tcli replies standup
+tcli replies standup --json
 ```
 
-Send formatted (HTML) — plain-text messages have their newlines collapsed by Teams:
+If you've never posted in the chat, recent messages are shown instead. `--max-pages` (default 5) limits how far back it searches for your last message.
 
-```bash
-tcli send <chat-id> --html "<b>Build passed</b><br>all green"
-```
+## Troubleshooting
 
-## File structure
-
-```
-tcli/
-├── main.go
-├── cmd/
-│   ├── root.go       # Root command
-│   ├── config.go     # tcli config
-│   ├── login.go      # tcli login
-│   ├── chats.go      # tcli chats
-│   └── send.go       # tcli send
-├── internal/
-│   ├── auth/
-│   │   ├── auth.go   # Device code flow
-│   │   └── cache.go  # Token cache
-│   └── graph/
-│       ├── client.go    # HTTP client for MS Graph
-│       ├── chats.go     # List chats
-│       └── messages.go  # Send messages
-├── config/
-│   └── config.go     # App configuration
-├── Makefile
-├── PLAN.md
-└── README.md
-```
+| Symptom | Fix |
+|---|---|
+| `AADSTS7000218: The request body must contain ... client_assertion or client_secret` | **Allow public client flows** is off — see step 2.5. |
+| `permission denied — ensure Chat.Read and ChatMessage.Send are granted ...` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
+| `not logged in` / `session expired` | Run `tcli login`. |
+| `tcli: command not found` | `~/.local/bin` is not on your `PATH` — see step 1. |
