@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/piotrwolkowski/tcli/config"
 	"github.com/piotrwolkowski/tcli/internal/graph"
 	"github.com/spf13/cobra"
 )
@@ -38,15 +37,18 @@ func init() {
 }
 
 func runSend(cmd *cobra.Command, args []string) error {
-	chatID := args[0]
-	if aliases, err := config.LoadAliases(); err == nil {
-		chatID = aliases.Resolve(chatID)
+	chatID, err := resolveChat(args[0])
+	if err != nil {
+		return err
 	}
 
 	var message string
 	if len(args) == 2 && args[1] != "-" {
 		message = args[1]
 	} else {
+		if stdinIsTerminal() {
+			return fmt.Errorf(`no message given — pass it as an argument or pipe it via stdin (use "-")`)
+		}
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("reading stdin: %w", err)
@@ -66,4 +68,14 @@ func runSend(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Message sent (id: %s, at: %s)\n", resp.ID, resp.CreatedAt)
 	return nil
+}
+
+// stdinIsTerminal reports whether stdin is an interactive terminal,
+// in which case reading it would block waiting for typed input.
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
