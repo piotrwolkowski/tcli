@@ -1,6 +1,19 @@
 # tcli
 
+```
+        [ ]
+         |
+    .---------.
+    |  O   O  |     tcli
+    |    ^    |     Microsoft Teams, from your terminal
+    |  \___/  |
+    '---------'
+     |||||||||
+```
+
 A command-line client for Microsoft Teams. List chats, send messages and read replies from your terminal. No frills, does one thing well.
+
+> **Agent-optimized Teams connector.** Every command runs non-interactively once you're logged in, takes chat aliases, accepts messages on stdin, offers `--json` output for `chats` and `replies`, and gives error messages that say what to do next, so AI agents and scripts can use Teams as easily as people can.
 
 ## Prerequisites
 
