@@ -21,12 +21,19 @@ argument or piped via stdin.
 Examples:
   tcli send 19:abc123@thread.v2 "Hello from the CLI"
   tcli send team-standup "Build passed"
-  echo "Build passed" | tcli send team-standup -`,
+  echo "Build passed" | tcli send team-standup -
+  tcli send team-standup --html "<b>Build passed</b><br>all green"
+
+Plain-text messages have their newlines collapsed by Teams; use --html
+(<p>, <br>, <ul>, <pre>, ...) when the message needs structure.`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runSend,
 }
 
+var sendHTML bool
+
 func init() {
+	sendCmd.Flags().BoolVar(&sendHTML, "html", false, "send the message as HTML (contentType html)")
 	rootCmd.AddCommand(sendCmd)
 }
 
@@ -52,7 +59,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	}
 
 	client := graph.NewClient()
-	resp, err := client.SendMessage(cmd.Context(), chatID, message)
+	resp, err := client.SendMessage(cmd.Context(), chatID, message, sendHTML)
 	if err != nil {
 		return err
 	}

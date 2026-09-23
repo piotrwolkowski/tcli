@@ -87,7 +87,8 @@ type SendMessageRequest struct {
 }
 
 type MessageBody struct {
-	Content string `json:"content"`
+	ContentType string `json:"contentType,omitempty"`
+	Content     string `json:"content"`
 }
 
 type SendMessageResponse struct {
@@ -95,9 +96,15 @@ type SendMessageResponse struct {
 	CreatedAt string `json:"createdDateTime"`
 }
 
-func (c *Client) SendMessage(ctx context.Context, chatID, content string) (*SendMessageResponse, error) {
+// SendMessage posts content to chatID. With html set the body is sent as
+// contentType "html"; otherwise Graph treats it as plain text, where Teams
+// collapses newlines.
+func (c *Client) SendMessage(ctx context.Context, chatID, content string, html bool) (*SendMessageResponse, error) {
 	payload := SendMessageRequest{
 		Body: MessageBody{Content: content},
+	}
+	if html {
+		payload.Body.ContentType = "html"
 	}
 
 	data, err := json.Marshal(payload)

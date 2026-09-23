@@ -96,6 +96,12 @@ Pipe command output:
 kubectl get pods | tcli send <chat-id> -
 ```
 
+Send formatted (HTML) — plain-text messages have their newlines collapsed by Teams:
+
+```bash
+tcli send <chat-id> --html "<b>Build passed</b><br>all green"
+```
+
 ## File structure
 
 ```
