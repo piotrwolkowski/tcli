@@ -2,9 +2,6 @@ package graph
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"strings"
 )
 
@@ -30,29 +27,13 @@ func (c *Client) ListChats(ctx context.Context) ([]Chat, error) {
 	path := "/me/chats?$expand=members&$top=50"
 
 	for path != "" {
-		resp, err := c.do(ctx, "GET", path, nil)
-		if err != nil {
+		var result chatsResponse
+		if err := c.getJSON(ctx, path, &result); err != nil {
 			return nil, err
 		}
-
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("reading response: %w", err)
-		}
-
-		var result chatsResponse
-		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("parsing chats response: %w", err)
-		}
-
 		allChats = append(allChats, result.Value...)
-
-		if result.NextLink != "" {
-			path = strings.TrimPrefix(result.NextLink, baseURL)
-		} else {
-			path = ""
-		}
+		// nextLink is an absolute URL; do() uses it as-is.
+		path = result.NextLink
 	}
 
 	return allChats, nil

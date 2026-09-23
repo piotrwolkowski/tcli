@@ -5,14 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"net/url"
 	"sort"
-	"strings"
+	"time"
 )
 
 type Message struct {
 	ID              string          `json:"id"`
+	MessageType     string          `json:"messageType"`
 	CreatedDateTime string          `json:"createdDateTime"`
+	DeletedDateTime string          `json:"deletedDateTime"`
 	From            *MessageFrom    `json:"from"`
 	Body            MessageBodyFull `json:"body"`
 }
@@ -36,50 +38,59 @@ type messagesResponse struct {
 	NextLink string    `json:"@odata.nextLink"`
 }
 
-// ListMessagesAfterMine fetches messages from chatID, newest-first, stopping
-// once it sees a message authored by meID. Returns messages newer than the
+// isUserMessage reports whether m is a real, non-deleted chat message
+// (as opposed to a system event or a deleted message).
+func isUserMessage(m Message) bool {
+	return m.MessageType == "message" && m.DeletedDateTime == ""
+}
+
+// ListMessagesAfterMine fetches messages from chatID, newest-first by
+// createdDateTime, stopping once it sees a real message authored by meID.
+// System and deleted messages are skipped. Returns messages newer than the
 // caller's most recent message, in chronological order (oldest first).
 // If the user has never posted in the chat, all fetched messages (up to
 // maxPages worth) are returned.
 func (c *Client) ListMessagesAfterMine(ctx context.Context, chatID, meID string, maxPages int) ([]Message, error) {
 	var collected []Message
-	foundMine := false
-	path := fmt.Sprintf("/me/chats/%s/messages?$top=50", chatID)
+	// Explicit ordering: Graph defaults to lastModifiedDateTime desc, which
+	// lets an edited old message of ours end the scan early. $top=50 is the max.
+	path := fmt.Sprintf("/me/chats/%s/messages?$orderby=createdDateTime%%20desc&$top=50", url.PathEscape(chatID))
 
+scan:
 	for pages := 0; path != "" && pages < maxPages; pages++ {
-		resp, err := c.do(ctx, "GET", path, nil)
-		if err != nil {
-			return nil, err
-		}
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("reading response: %w", err)
-		}
-
 		var result messagesResponse
-		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("parsing messages response: %w", err)
+		if err := c.getJSON(ctx, path, &result); err != nil {
+			return nil, err
 		}
 
 		for _, m := range result.Value {
+			if !isUserMessage(m) {
+				continue
+			}
 			if m.From != nil && m.From.User != nil && m.From.User.ID == meID {
-				foundMine = true
-				break
+				break scan
 			}
 			collected = append(collected, m)
 		}
 
-		if foundMine || result.NextLink == "" {
-			break
-		}
-		path = strings.TrimPrefix(result.NextLink, baseURL)
+		path = result.NextLink
 	}
 
-	sort.Slice(collected, func(i, j int) bool {
-		return collected[i].CreatedDateTime < collected[j].CreatedDateTime
+	sort.SliceStable(collected, func(i, j int) bool {
+		return createdBefore(collected[i], collected[j])
 	})
 	return collected, nil
+}
+
+// createdBefore compares messages by parsed createdDateTime, falling back
+// to string comparison when either timestamp fails to parse.
+func createdBefore(a, b Message) bool {
+	ta, errA := time.Parse(time.RFC3339Nano, a.CreatedDateTime)
+	tb, errB := time.Parse(time.RFC3339Nano, b.CreatedDateTime)
+	if errA != nil || errB != nil {
+		return a.CreatedDateTime < b.CreatedDateTime
+	}
+	return ta.Before(tb)
 }
 
 type SendMessageRequest struct {
@@ -112,22 +123,15 @@ func (c *Client) SendMessage(ctx context.Context, chatID, content string, html b
 		return nil, fmt.Errorf("marshalling message: %w", err)
 	}
 
-	path := fmt.Sprintf("/me/chats/%s/messages", chatID)
+	path := fmt.Sprintf("/me/chats/%s/messages", url.PathEscape(chatID))
 	resp, err := c.do(ctx, "POST", path, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
 
 	var result SendMessageResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parsing response: %w", err)
+	if err := decodeJSON(resp, &result); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
