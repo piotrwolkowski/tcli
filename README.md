@@ -133,6 +133,6 @@ If you've never posted in the chat, recent messages are shown instead. `--max-pa
 | Symptom | Fix |
 |---|---|
 | `AADSTS7000218: The request body must contain ... client_assertion or client_secret` | **Allow public client flows** is off — see step 2.5. |
-| `permission denied — ensure Chat.Read and ChatMessage.Send are granted ...` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
+| `permission denied … Chat.Read and ChatMessage.Send …` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
 | `not logged in` / `session expired` | Run `tcli login`. |
 | `tcli: command not found` | `~/.local/bin` is not on your `PATH` — see step 1. |
