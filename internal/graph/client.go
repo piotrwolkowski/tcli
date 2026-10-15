@@ -114,7 +114,7 @@ func parseGraphError(resp *http.Response) error {
 		case 401:
 			return fmt.Errorf("unauthorized — session may have expired, run: tcli login")
 		case 403:
-			return fmt.Errorf("permission denied — ensure Chat.Read and ChatMessage.Send are granted in your Azure app registration")
+			return fmt.Errorf("permission denied — ensure Chat.Read, ChatMessage.Send and Files.Read.All are granted in your Azure app registration")
 		}
 		return fmt.Errorf("Graph API error (%s): %s", ge.Error.Code, ge.Error.Message)
 	}

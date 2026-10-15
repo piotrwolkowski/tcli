@@ -15,6 +15,7 @@ type Message struct {
 	CreatedDateTime string          `json:"createdDateTime"`
 	From            *MessageFrom    `json:"from"`
 	Body            MessageBodyFull `json:"body"`
+	Attachments     []Attachment    `json:"attachments,omitempty"`
 }
 
 type MessageFrom struct {
