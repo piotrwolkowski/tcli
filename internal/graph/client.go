@@ -154,7 +154,7 @@ func parseGraphError(resp *http.Response) error {
 		if parsed {
 			detail = fmt.Sprintf(" (%s: %s)", ge.Error.Code, ge.Error.Message)
 		}
-		return fmt.Errorf("permission denied%s — check the chat ID/alias and that Chat.Read and ChatMessage.Send are granted in your Azure app registration", detail)
+		return fmt.Errorf("permission denied%s — check the chat ID/alias and that Chat.Read, ChatMessage.Send and Files.Read.All are granted in your Azure app registration", detail)
 	case 404:
 		detail := ""
 		if parsed {

@@ -14,7 +14,8 @@ import (
 )
 
 // Scopes requested. offline_access is required to receive a refresh token.
-const graphScopes = "https://graph.microsoft.com/Chat.Read https://graph.microsoft.com/ChatMessage.Send offline_access"
+// Files.Read.All is needed to download files shared in chats.
+const graphScopes = "https://graph.microsoft.com/Chat.Read https://graph.microsoft.com/ChatMessage.Send https://graph.microsoft.com/Files.Read.All offline_access"
 
 type deviceCodeResponse struct {
 	DeviceCode      string `json:"device_code"`

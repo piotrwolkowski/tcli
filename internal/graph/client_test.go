@@ -51,7 +51,7 @@ func TestParseGraphError(t *testing.T) {
 		{
 			name:       "403 without Graph body still returns permission hint",
 			resp:       makeResp(403, `nope`),
-			wantSubstr: "Chat.Read and ChatMessage.Send",
+			wantSubstr: "Chat.Read, ChatMessage.Send and Files.Read.All",
 		},
 		{
 			name:       "404 returns not found hint",

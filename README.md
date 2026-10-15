@@ -43,6 +43,7 @@ tcli talks to Microsoft Graph, which requires an app registration in your tenant
 4. Go to **API permissions > Add a permission > Microsoft Graph > Delegated permissions** and add:
    - `Chat.Read`
    - `ChatMessage.Send`
+   - `Files.Read.All` — lets `tcli replies --download` fetch files shared in chats
 
    Keep the default `User.Read` permission — `tcli replies` needs it.
 5. Go to **Authentication**, find **Allow public client flows** (under *Advanced settings*), set it to **Yes**, and click **Save**. Device-code login fails without this.
@@ -130,11 +131,20 @@ tcli replies standup --json
 
 If you've never posted in the chat, recent messages are shown instead. `--max-pages` (default 5) limits how far back it searches for your last message.
 
+Files and inline images attached to messages are listed under each message (📎 for files, 🖼 for pasted images). To save them, pass a directory:
+
+```bash
+tcli replies standup --download ~/Downloads/standup
+```
+
+Existing files are never overwritten — a numeric suffix is added instead (`report-1.pdf`). Inline images are saved as `image-<message-id>-<n>.png` (or `.jpg` etc.).
+
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `AADSTS7000218: The request body must contain ... client_assertion or client_secret` | **Allow public client flows** is off — see step 2.5. |
-| `permission denied … Chat.Read and ChatMessage.Send …` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
+| `permission denied … Chat.Read, ChatMessage.Send and Files.Read.All …` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
 | `not logged in` / `session expired` | Run `tcli login`. |
+| Token refresh fails with `AADSTS65001` (consent required) after upgrading tcli | A new permission was added (`Files.Read.All`). Add it as in step 2.4, then run `tcli login` again. |
 | `tcli: command not found` | `~/.local/bin` is not on your `PATH` — see step 1. |
