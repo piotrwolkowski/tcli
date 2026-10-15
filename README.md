@@ -1,6 +1,19 @@
 # tcli
 
+```
+        [ ]
+         |
+    .---------.
+    |  O   O  |     tcli
+    |    ^    |     Microsoft Teams, from your terminal
+    |  \___/  |
+    '---------'
+     |||||||||
+```
+
 A command-line client for Microsoft Teams. List chats, send messages and read replies from your terminal. No frills, does one thing well.
+
+> **Agent-optimized Teams connector.** Every command runs non-interactively once you're logged in, takes chat aliases, accepts messages on stdin, offers `--json` output for `chats` and `replies`, and gives error messages that say what to do next, so AI agents and scripts can use Teams as easily as people can.
 
 ## Prerequisites
 
@@ -58,6 +71,8 @@ tcli login
 ```
 
 This prints a URL and a code. Open the URL in any browser (it doesn't have to be on the same machine), enter the code, and sign in with your Microsoft account. Tokens are cached in `~/.config/tcli/tokens.json` and refreshed automatically; run `tcli login` again if you're told your session has expired.
+
+Run `tcli logout` to remove the cached tokens.
 
 Check it works:
 
@@ -129,7 +144,7 @@ Existing files are never overwritten — a numeric suffix is added instead (`rep
 | Symptom | Fix |
 |---|---|
 | `AADSTS7000218: The request body must contain ... client_assertion or client_secret` | **Allow public client flows** is off — see step 2.5. |
-| `permission denied — ensure Chat.Read, ChatMessage.Send and Files.Read.All are granted ...` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
+| `permission denied … Chat.Read, ChatMessage.Send and Files.Read.All …` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
 | `not logged in` / `session expired` | Run `tcli login`. |
 | Token refresh fails with `AADSTS65001` (consent required) after upgrading tcli | A new permission was added (`Files.Read.All`). Add it as in step 2.4, then run `tcli login` again. |
 | `tcli: command not found` | `~/.local/bin` is not on your `PATH` — see step 1. |

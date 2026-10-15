@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 )
 
@@ -61,6 +62,7 @@ func (c *Client) DownloadFile(ctx context.Context, a Attachment) (*http.Response
 // DownloadHostedContent opens an inline image of a chat message. The caller
 // must close the returned response body.
 func (c *Client) DownloadHostedContent(ctx context.Context, chatID, messageID, hostedContentID string) (*http.Response, error) {
-	path := fmt.Sprintf("/me/chats/%s/messages/%s/hostedContents/%s/$value", chatID, messageID, hostedContentID)
+	path := fmt.Sprintf("/me/chats/%s/messages/%s/hostedContents/%s/$value",
+		url.PathEscape(chatID), url.PathEscape(messageID), url.PathEscape(hostedContentID))
 	return c.do(ctx, "GET", path, nil)
 }

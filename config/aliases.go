@@ -74,14 +74,6 @@ func (a Aliases) SetAlias(name, chatID string) {
 	a[name] = chatID
 }
 
-// Resolve returns the chat ID for name, or name itself if no alias matches.
-func (a Aliases) Resolve(name string) string {
-	if id, ok := a[name]; ok {
-		return id
-	}
-	return name
-}
-
 // AliasFor returns the alias name for chatID, or "" if none is set.
 func (a Aliases) AliasFor(chatID string) string {
 	for name, id := range a {
