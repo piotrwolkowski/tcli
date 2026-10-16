@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"net/url"
 	"strings"
 )
 
@@ -13,6 +14,7 @@ type Chat struct {
 }
 
 type ChatMember struct {
+	UserID      string `json:"userId"`
 	DisplayName string `json:"displayName"`
 	Email       string `json:"email"`
 }
@@ -20,6 +22,27 @@ type ChatMember struct {
 type chatsResponse struct {
 	Value    []Chat `json:"value"`
 	NextLink string `json:"@odata.nextLink"`
+}
+
+type membersResponse struct {
+	Value    []ChatMember `json:"value"`
+	NextLink string       `json:"@odata.nextLink"`
+}
+
+func (c *Client) ListChatMembers(ctx context.Context, chatID string) ([]ChatMember, error) {
+	var members []ChatMember
+	path := "/chats/" + url.PathEscape(chatID) + "/members"
+
+	for path != "" {
+		var result membersResponse
+		if err := c.getJSON(ctx, path, &result); err != nil {
+			return nil, err
+		}
+		members = append(members, result.Value...)
+		path = result.NextLink
+	}
+
+	return members, nil
 }
 
 func (c *Client) ListChats(ctx context.Context) ([]Chat, error) {

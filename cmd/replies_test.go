@@ -34,3 +34,19 @@ func TestRenderBody(t *testing.T) {
 		})
 	}
 }
+
+func TestReactionSummary(t *testing.T) {
+	mixed := []graph.Reaction{
+		{ReactionType: "👍"},
+		{ReactionType: "like"},
+		{ReactionType: "❤️"},
+		{ReactionType: "custom", DisplayName: "partyparrot"},
+		{ReactionType: "👍"},
+	}
+	if got, want := reactionSummary(mixed), "👍 3  ❤️ 1  partyparrot 1"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := reactionSummary(nil); got != "" {
+		t.Errorf("empty = %q, want empty", got)
+	}
+}

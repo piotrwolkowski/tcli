@@ -26,8 +26,9 @@ The chat argument may be a raw chat ID or an alias.
 
 If you've never posted in the chat, recent messages are shown instead.
 
-Attached files and inline images are listed under each message. Use
---download <dir> to save them.`,
+Attached files, inline images and reactions are listed under each message.
+Use --download <dir> to save the files and images, and pass a message's ID
+to "tcli react" to react to it.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runReplies,
 }
@@ -76,7 +77,7 @@ func runReplies(cmd *cobra.Command, args []string) error {
 		if m.From != nil && m.From.User != nil && m.From.User.DisplayName != "" {
 			author = m.From.User.DisplayName
 		}
-		fmt.Printf("[%s] %s:\n%s\n", m.CreatedDateTime, author, renderBody(m.Body))
+		fmt.Printf("[%s] %s (id %s):\n%s\n", m.CreatedDateTime, author, m.ID, renderBody(m.Body))
 		for _, a := range m.Attachments {
 			if a.IsFile() {
 				fmt.Printf("  📎 %s\n", a.Name)
@@ -85,9 +86,35 @@ func runReplies(cmd *cobra.Command, args []string) error {
 		if n := len(m.HostedContentIDs()); n > 0 {
 			fmt.Printf("  🖼  %d inline image(s)\n", n)
 		}
+		if s := reactionSummary(m.Reactions); s != "" {
+			fmt.Printf("  %s\n", s)
+		}
 		fmt.Println()
 	}
 	return downloadAttachments(cmd.Context(), client, chatID, msgs, repliesDownload)
+}
+
+// reactionSummary renders reactions as a count per reaction in first-seen
+// order, e.g. "👍 2  ❤️ 1".
+func reactionSummary(reactions []graph.Reaction) string {
+	var order []string
+	counts := map[string]int{}
+	for _, r := range reactions {
+		label := reactionEmoji(r.ReactionType)
+		if r.ReactionType == "custom" && r.DisplayName != "" {
+			label = r.DisplayName
+		}
+		if counts[label] == 0 {
+			order = append(order, label)
+		}
+		counts[label]++
+	}
+
+	parts := make([]string, len(order))
+	for i, label := range order {
+		parts[i] = fmt.Sprintf("%s %d", label, counts[label])
+	}
+	return strings.Join(parts, "  ")
 }
 
 func renderBody(b graph.MessageBodyFull) string {

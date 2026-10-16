@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -18,6 +20,16 @@ type Message struct {
 	From            *MessageFrom    `json:"from"`
 	Body            MessageBodyFull `json:"body"`
 	Attachments     []Attachment    `json:"attachments,omitempty"`
+	Reactions       []Reaction      `json:"reactions,omitempty"`
+}
+
+// Reaction is a chatMessageReaction. ReactionType is a unicode emoji,
+// "custom" (named by DisplayName), or a legacy name such as "like".
+type Reaction struct {
+	ReactionType    string       `json:"reactionType"`
+	DisplayName     string       `json:"displayName,omitempty"`
+	CreatedDateTime string       `json:"createdDateTime"`
+	User            *MessageFrom `json:"user"`
 }
 
 type MessageFrom struct {
@@ -95,7 +107,8 @@ func createdBefore(a, b Message) bool {
 }
 
 type SendMessageRequest struct {
-	Body MessageBody `json:"body"`
+	Body        MessageBody  `json:"body"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
 type MessageBody struct {
@@ -108,14 +121,27 @@ type SendMessageResponse struct {
 	CreatedAt string `json:"createdDateTime"`
 }
 
-// SendMessage posts content to chatID. With html set the body is sent as
+// SendMessage posts content to chatID. With asHTML set the body is sent as
 // contentType "html"; otherwise Graph treats it as plain text, where Teams
-// collapses newlines.
-func (c *Client) SendMessage(ctx context.Context, chatID, content string, html bool) (*SendMessageResponse, error) {
-	payload := SendMessageRequest{
-		Body: MessageBody{Content: content},
+// collapses newlines. Attachments (see DriveItem.ChatAttachment) are
+// referenced from the body, which makes it HTML: plain text is escaped, with
+// newlines kept as <br>.
+func (c *Client) SendMessage(ctx context.Context, chatID, content string, asHTML bool, attachments ...Attachment) (*SendMessageResponse, error) {
+	if len(attachments) > 0 {
+		if !asHTML {
+			content = strings.ReplaceAll(html.EscapeString(content), "\n", "<br>")
+			asHTML = true
+		}
+		for _, a := range attachments {
+			content += fmt.Sprintf(`<attachment id="%s"></attachment>`, html.EscapeString(a.ID))
+		}
 	}
-	if html {
+
+	payload := SendMessageRequest{
+		Body:        MessageBody{Content: content},
+		Attachments: attachments,
+	}
+	if asHTML {
 		payload.Body.ContentType = "html"
 	}
 

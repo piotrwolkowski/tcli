@@ -8,14 +8,16 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/piotrwolkowski/tcli/config"
 )
 
 // Scopes requested. offline_access is required to receive a refresh token.
-// Files.Read.All is needed to download files shared in chats.
-const graphScopes = "https://graph.microsoft.com/Chat.Read https://graph.microsoft.com/ChatMessage.Send https://graph.microsoft.com/Files.Read.All offline_access"
+// Files.Read.All is needed to download files shared in chats; Files.ReadWrite
+// to upload files to the user's OneDrive and share them in chats.
+const graphScopes = "https://graph.microsoft.com/Chat.Read https://graph.microsoft.com/ChatMessage.Send https://graph.microsoft.com/Files.Read.All https://graph.microsoft.com/Files.ReadWrite offline_access"
 
 type deviceCodeResponse struct {
 	DeviceCode      string `json:"device_code"`
@@ -183,6 +185,10 @@ func GetToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("refreshing token: %w", err)
 	}
 	if tok.Error != "" {
+		// A scope added in a newer tcli version has not been consented to yet.
+		if strings.Contains(tok.ErrorDesc, "AADSTS65001") {
+			return "", fmt.Errorf("tcli needs a new permission (AADSTS65001: consent required) — add it to your Azure app registration (see README step 2.4), then run: tcli login")
+		}
 		return "", fmt.Errorf("session expired (%s) — run: tcli login", tok.Error)
 	}
 
