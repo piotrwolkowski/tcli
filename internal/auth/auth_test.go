@@ -10,7 +10,8 @@ import (
 	"time"
 )
 
-// setupEnv isolates the config dir and points the auth endpoints at srvURL.
+// setupEnv isolates the config dir, points the auth endpoints at srvURL and
+// shrinks the device-code poll unit so Login tests run fast.
 func setupEnv(t *testing.T, srvURL string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -19,6 +20,11 @@ func setupEnv(t *testing.T, srvURL string) {
 	orig := authorityHost
 	authorityHost = srvURL
 	t.Cleanup(func() { authorityHost = orig })
+
+	// Poll the device-code endpoint in milliseconds rather than seconds.
+	origUnit := pollUnit
+	pollUnit = time.Millisecond
+	t.Cleanup(func() { pollUnit = origUnit })
 }
 
 func saveTestCache(t *testing.T, c *TokenCache) {

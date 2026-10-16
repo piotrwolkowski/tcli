@@ -374,6 +374,7 @@ func TestLoginDeviceCodeNotJSON(t *testing.T) {
 func TestLoginContextCancelled(t *testing.T) {
 	srv := loginServer(t, 200, goodDC, `{"error":"authorization_pending"}`)
 	setupEnv(t, srv.URL)
+	pollUnit = 10 * time.Second // long enough that waiting out the interval fails the check below
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

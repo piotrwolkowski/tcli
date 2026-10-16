@@ -42,6 +42,10 @@ type tokenResponse struct {
 // authorityHost is a var so tests can point it at a local server.
 var authorityHost = "https://login.microsoftonline.com"
 
+// pollUnit is the unit of the device-code poll interval (seconds); a var so
+// tests can poll in milliseconds.
+var pollUnit = time.Second
+
 // defaultDeviceCodeTTL applies when the server omits expires_in.
 const defaultDeviceCodeTTL = 15 * time.Minute
 
@@ -103,7 +107,7 @@ func Login(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(time.Duration(interval) * time.Second):
+		case <-time.After(time.Duration(interval) * pollUnit):
 		}
 
 		tok, err := postToken(cfg.TenantID, url.Values{

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -81,12 +82,16 @@ func (c *Client) send(ctx context.Context, method, reqURL string, body []byte, h
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
 
-		if resp.StatusCode == 429 {
+		if retryable(method, resp.StatusCode) {
 			resp.Body.Close()
-			if attempt == maxRetries {
-				return nil, fmt.Errorf("rate limited by Graph API — try again later")
-			}
 			wait := retryAfter(resp, attempt)
+			if wait > maxRetryWait {
+				// Retrying sooner than asked would only be refused again.
+				return nil, fmt.Errorf("%s — retry in %s", unavailable(resp.StatusCode), wait)
+			}
+			if attempt == maxRetries {
+				return nil, fmt.Errorf("%s — try again later", unavailable(resp.StatusCode))
+			}
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -138,23 +143,43 @@ func decodeJSON(resp *http.Response, v any) error {
 	return nil
 }
 
-// maxRetryWait caps Retry-After so a bogus value cannot stall the CLI.
+// retryable reports whether a response is worth retrying. A 429 always is:
+// throttled requests are not processed. 503/504 are retried only for requests
+// that are safe to repeat (GETs and upload-chunk PUTs), since a POST that
+// timed out may already have posted its message.
+func retryable(method string, status int) bool {
+	switch status {
+	case http.StatusTooManyRequests:
+		return true
+	case http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return method == http.MethodGet || method == http.MethodPut
+	}
+	return false
+}
+
+func unavailable(status int) string {
+	if status == http.StatusTooManyRequests {
+		return "rate limited by Graph API"
+	}
+	return fmt.Sprintf("Graph API unavailable (HTTP %d)", status)
+}
+
+// maxRetryWait is the longest tcli waits before a retry; when Graph asks for
+// longer, the request fails instead of stalling the CLI.
 const maxRetryWait = 60 * time.Second
 
+// maxRetryAfterSecs bounds a parsed Retry-After so converting it to a
+// time.Duration cannot overflow.
+const maxRetryAfterSecs = math.MaxInt32
+
 // retryAfter returns how long to wait before the next retry, using the
-// Retry-After response header when present (clamped to 0..maxRetryWait) and
+// Retry-After response header when present (negative values count as 0) and
 // falling back to exponential backoff.
 func retryAfter(resp *http.Response, attempt int) time.Duration {
 	if h := resp.Header.Get("Retry-After"); h != "" {
-		if secs, err := strconv.Atoi(h); err == nil {
-			// Clamp in seconds: a huge value would overflow time.Duration.
-			switch {
-			case secs <= 0:
-				return 0
-			case secs >= int(maxRetryWait/time.Second):
-				return maxRetryWait
-			}
-			return time.Duration(secs) * time.Second
+		// 64-bit parse so huge values are capped, not rejected, on 32-bit builds too.
+		if secs, err := strconv.ParseInt(h, 10, 64); err == nil {
+			return time.Duration(min(max(secs, 0), maxRetryAfterSecs)) * time.Second
 		}
 	}
 	// 2s, 4s, 8s
@@ -182,6 +207,12 @@ func parseGraphError(resp *http.Response) error {
 			detail = fmt.Sprintf(" (%s: %s)", ge.Error.Code, ge.Error.Message)
 		}
 		return fmt.Errorf("not found%s — check the chat ID or alias, and any message ID", detail)
+	// Requests that are safe to repeat were already retried by send, so these
+	// are requests that must not be repeated blindly, such as posting a message.
+	case 503:
+		return fmt.Errorf("Graph API unavailable (HTTP 503) — try again later")
+	case 504:
+		return fmt.Errorf("Graph API timed out (HTTP 504) — the request may still have gone through; if you were sending, check the chat before retrying")
 	}
 
 	if parsed {

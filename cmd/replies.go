@@ -3,9 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"html"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/piotrwolkowski/tcli/internal/graph"
@@ -122,53 +120,4 @@ func renderBody(b graph.MessageBodyFull) string {
 		return htmlToText(b.Content)
 	}
 	return strings.TrimSpace(b.Content)
-}
-
-var (
-	htmlBreakRe = regexp.MustCompile(`(?i)<br\s*/?>|</(?:p|div)\s*>`)
-	// Block boundaries that must start a new line but never add a blank one.
-	htmlBlockRe = regexp.MustCompile(`(?i)<(?:p|div|ul|ol)(?:\s[^>]*)?>|</(?:ul|ol|li)\s*>`)
-	htmlItemRe  = regexp.MustCompile(`(?i)<li(?:\s[^>]*)?>`)
-	htmlTagRe   = regexp.MustCompile(`<[^>]+>`)
-	blankRunRe  = regexp.MustCompile(`\n{3,}`)
-)
-
-// newLineMark stands in for a block boundary until resolveNewLineMarks
-// turns it into a line break where one is needed.
-const newLineMark = '\x00'
-
-// htmlToText renders a Teams HTML message body as readable plain text,
-// keeping line and paragraph breaks and list items.
-func htmlToText(s string) string {
-	s = strings.ReplaceAll(s, string(newLineMark), "")
-	s = htmlBreakRe.ReplaceAllString(s, "\n")
-	s = htmlBlockRe.ReplaceAllString(s, string(newLineMark))
-	s = htmlItemRe.ReplaceAllString(s, string(newLineMark)+"- ")
-	s = htmlTagRe.ReplaceAllString(s, "")
-	s = resolveNewLineMarks(s)
-	s = html.UnescapeString(s)
-	s = strings.ReplaceAll(s, "\u00a0", " ")
-	s = blankRunRe.ReplaceAllString(s, "\n\n")
-	return strings.TrimSpace(s)
-}
-
-// resolveNewLineMarks replaces each run of newLineMark with a line break,
-// or with nothing when the text is already at, or about to start, a new line.
-func resolveNewLineMarks(s string) string {
-	var b strings.Builder
-	atLineStart, pending := true, false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == newLineMark {
-			pending = true
-			continue
-		}
-		if pending && !atLineStart && c != '\n' {
-			b.WriteByte('\n')
-		}
-		pending = false
-		b.WriteByte(c)
-		atLineStart = c == '\n'
-	}
-	return b.String()
 }

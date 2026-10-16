@@ -96,7 +96,9 @@ func messageText(args []string, haveFiles bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading stdin: %w", err)
 	}
-	return strings.TrimRight(string(data), "\r\n"), nil
+	// Normalise Windows line endings; Teams would otherwise get stray "\r"s.
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	return strings.TrimRight(text, "\r\n"), nil
 }
 
 // stdinIsTerminal reports whether stdin is an interactive terminal,

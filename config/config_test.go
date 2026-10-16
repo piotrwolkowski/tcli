@@ -17,13 +17,15 @@ func isolate(t *testing.T) string {
 	return home
 }
 
-func writeConfigFile(t *testing.T, home, content string) {
+// writeConfigDirFile writes content to name (e.g. "config.json") in the tcli
+// config directory under home, creating the directory if needed.
+func writeConfigDirFile(t *testing.T, home, name, content string) {
 	t.Helper()
 	dir := filepath.Join(home, ".config", "tcli")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(content), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -54,7 +56,7 @@ func TestLoadEnvOnly(t *testing.T) {
 
 func TestLoadFileOnly(t *testing.T) {
 	home := isolate(t)
-	writeConfigFile(t, home, `{"clientId":"file-c","tenantId":"file-t"}`)
+	writeConfigDirFile(t, home, "config.json", `{"clientId":"file-c","tenantId":"file-t"}`)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -77,7 +79,7 @@ func TestLoadEnvOverridesFilePerField(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			home := isolate(t)
-			writeConfigFile(t, home, `{"clientId":"file-c","tenantId":"file-t"}`)
+			writeConfigDirFile(t, home, "config.json", `{"clientId":"file-c","tenantId":"file-t"}`)
 			t.Setenv("TCLI_CLIENT_ID", tt.envClient)
 			t.Setenv("TCLI_TENANT_ID", tt.envTenant)
 			cfg, err := Load()
@@ -101,7 +103,7 @@ func TestLoadMissingFileNoEnv(t *testing.T) {
 
 func TestLoadInvalidJSON(t *testing.T) {
 	home := isolate(t)
-	writeConfigFile(t, home, `{not json`)
+	writeConfigDirFile(t, home, "config.json", `{not json`)
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "parsing config.json") {
 		t.Errorf("got err=%v", err)
@@ -116,7 +118,7 @@ func TestLoadPartialFileNoEnv(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := isolate(t)
-			writeConfigFile(t, home, content)
+			writeConfigDirFile(t, home, "config.json", content)
 			_, err := Load()
 			if err == nil || !strings.Contains(err.Error(), "required") {
 				t.Errorf("got err=%v", err)
@@ -127,7 +129,7 @@ func TestLoadPartialFileNoEnv(t *testing.T) {
 
 func TestLoadPartialFileCompletedByEnv(t *testing.T) {
 	home := isolate(t)
-	writeConfigFile(t, home, `{"clientId":"file-c"}`)
+	writeConfigDirFile(t, home, "config.json", `{"clientId":"file-c"}`)
 	t.Setenv("TCLI_TENANT_ID", "env-t")
 	cfg, err := Load()
 	if err != nil {
