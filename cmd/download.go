@@ -64,10 +64,11 @@ func downloadAttachments(ctx context.Context, client *graph.Client, chatID strin
 func saveResponse(dir, name string, resp *http.Response) (string, error) {
 	defer resp.Body.Close()
 
+	name = safeFileName(name)
 	if filepath.Ext(name) == "" {
 		name += extensionFor(resp.Header.Get("Content-Type"))
 	}
-	path := uniquePath(dir, safeFileName(name))
+	path := uniquePath(dir, name)
 
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
@@ -95,6 +96,9 @@ func safeFileName(name string) string {
 func uniquePath(dir, name string) string {
 	path := filepath.Join(dir, name)
 	ext := filepath.Ext(name)
+	if ext == name {
+		ext = "" // a dotfile such as .bashrc has no extension
+	}
 	stem := strings.TrimSuffix(name, ext)
 	for i := 1; ; i++ {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
