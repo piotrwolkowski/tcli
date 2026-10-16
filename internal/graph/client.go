@@ -138,11 +138,22 @@ func decodeJSON(resp *http.Response, v any) error {
 	return nil
 }
 
+// maxRetryWait caps Retry-After so a bogus value cannot stall the CLI.
+const maxRetryWait = 60 * time.Second
+
 // retryAfter returns how long to wait before the next retry, using the
-// Retry-After response header when present and falling back to exponential backoff.
+// Retry-After response header when present (clamped to 0..maxRetryWait) and
+// falling back to exponential backoff.
 func retryAfter(resp *http.Response, attempt int) time.Duration {
 	if h := resp.Header.Get("Retry-After"); h != "" {
 		if secs, err := strconv.Atoi(h); err == nil {
+			// Clamp in seconds: a huge value would overflow time.Duration.
+			switch {
+			case secs <= 0:
+				return 0
+			case secs >= int(maxRetryWait/time.Second):
+				return maxRetryWait
+			}
 			return time.Duration(secs) * time.Second
 		}
 	}

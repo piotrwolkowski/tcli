@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/piotrwolkowski/tcli/config"
 )
@@ -237,6 +238,10 @@ func postToken(tenantID string, values url.Values) (*tokenResponse, error) {
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	// Back up to a rune boundary so the result stays valid UTF-8.
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "..."
 }

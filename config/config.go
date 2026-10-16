@@ -29,7 +29,7 @@ func Load() (*Config, error) {
 
 	dir, err := Dir()
 	if err != nil {
-		return cfg, nil
+		return cfg, validate(cfg)
 	}
 
 	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
