@@ -11,9 +11,9 @@
      |||||||||
 ```
 
-A command-line client for Microsoft Teams. List chats, send messages and read replies from your terminal. No frills, does one thing well.
+A command-line client for Microsoft Teams. List chats, send messages and files, read replies and react to them from your terminal. No frills, does one thing well.
 
-> **Agent-optimized Teams connector.** Every command runs non-interactively once you're logged in, takes chat aliases, accepts messages on stdin, offers `--json` output for `chats` and `replies`, and gives error messages that say what to do next, so AI agents and scripts can use Teams as easily as people can.
+> **Agent-optimized Teams connector.** Every command runs non-interactively once you're logged in, takes chat aliases, accepts messages on stdin, sends files and emoji reactions, offers `--json` output for `chats` and `replies`, and gives error messages that say what to do next, so AI agents and scripts can use Teams as easily as people can.
 
 ## Prerequisites
 
@@ -44,6 +44,7 @@ tcli talks to Microsoft Graph, which requires an app registration in your tenant
    - `Chat.Read`
    - `ChatMessage.Send`
    - `Files.Read.All` — lets `tcli replies --download` fetch files shared in chats
+   - `Files.ReadWrite` — lets `tcli send --file` upload files to your OneDrive and share them with the chat
 
    Keep the default `User.Read` permission — `tcli replies` needs it.
 5. Go to **Authentication**, find **Allow public client flows** (under *Advanced settings*), set it to **Yes**, and click **Save**. Device-code login fails without this.
@@ -120,6 +121,29 @@ Teams collapses newlines in plain-text messages. Use `--html` when the message n
 tcli send standup --html "<b>Build passed</b><br>all green"
 ```
 
+### Send files
+
+Attach files with `--file` (or `-f`, repeatable). The message is optional:
+
+```bash
+tcli send standup "Q3 report attached" --file report.pdf
+tcli send standup -f notes.txt -f data.csv
+```
+
+As in Teams itself, files are uploaded to the **Microsoft Teams Chat Files** folder of your OneDrive (a name clash gets a numbered copy rather than overwriting) and shared **view-only** with the other chat members, who can open or download them. If a member can't be given access — e.g. an external user your organisation doesn't share with — tcli warns and sends anyway; if nobody can, the message isn't sent.
+
+With `--file` and no message, stdin is not read; pass `-` to send piped text along with the files.
+
+### React to a message
+
+```bash
+tcli react standup 1712345678901 👍
+tcli react standup 1712345678901 heart
+tcli react standup 1712345678901 👍 --remove
+```
+
+The message ID is shown by `tcli replies` (and in `--json` output) and printed by `tcli send`. Any emoji works; `like`, `heart`, `laugh`, `surprised`, `sad` and `angry` are accepted as names.
+
 ### Read replies
 
 Show messages posted in a chat since your last message:
@@ -131,7 +155,7 @@ tcli replies standup --json
 
 If you've never posted in the chat, recent messages are shown instead. `--max-pages` (default 5) limits how far back it searches for your last message.
 
-Files and inline images attached to messages are listed under each message (📎 for files, 🖼 for pasted images). To save them, pass a directory:
+Each message is shown with its ID (for `tcli react`). Files, inline images and reactions are listed under each message (📎 for files, 🖼 for pasted images, then reaction counts such as `👍 2  ❤️ 1`). To save the files and images, pass a directory:
 
 ```bash
 tcli replies standup --download ~/Downloads/standup
@@ -144,7 +168,8 @@ Existing files are never overwritten — a numeric suffix is added instead (`rep
 | Symptom | Fix |
 |---|---|
 | `AADSTS7000218: The request body must contain ... client_assertion or client_secret` | **Allow public client flows** is off — see step 2.5. |
-| `permission denied … Chat.Read, ChatMessage.Send and Files.Read.All …` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
+| `permission denied … Chat.Read, ChatMessage.Send, Files.Read.All and Files.ReadWrite …` | Add the permissions in step 2.4 (and grant admin consent if your org requires it), then run `tcli login` again. |
 | `not logged in` / `session expired` | Run `tcli login`. |
-| Token refresh fails with `AADSTS65001` (consent required) after upgrading tcli | A new permission was added (`Files.Read.All`). Add it as in step 2.4, then run `tcli login` again. |
+| `tcli needs a new permission (AADSTS65001 …)` after upgrading tcli | A new permission was added (most recently `Files.ReadWrite`). Add it as in step 2.4, then run `tcli login` again. |
+| A recipient can't open a file you sent | tcli prints a `could not share … with …` warning when that happens — usually an external member your organisation's sharing policy excludes. Share the file from OneDrive (Microsoft Teams Chat Files) manually. |
 | `tcli: command not found` | `~/.local/bin` is not on your `PATH` — see step 1. |

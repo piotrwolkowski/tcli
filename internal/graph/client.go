@@ -36,6 +36,7 @@ type graphErrorBody struct {
 	} `json:"error"`
 }
 
+// do sends an authenticated Graph request with a JSON body.
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	token, err := c.token(ctx)
 	if err != nil {
@@ -51,20 +52,29 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*
 		}
 	}
 
-	reqURL := c.resolve(path)
+	return c.send(ctx, method, c.resolve(path), bodyBytes, http.Header{
+		"Authorization": {"Bearer " + token},
+		"Content-Type":  {"application/json"},
+	})
+}
 
+// send performs a request with exactly the given headers, retrying 429s and
+// mapping errors. do adds authentication; upload-session URLs are
+// pre-authenticated and must be sent without it.
+func (c *Client) send(ctx context.Context, method, reqURL string, body []byte, header http.Header) (*http.Response, error) {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		var bodyReader io.Reader
-		if bodyBytes != nil {
-			bodyReader = bytes.NewReader(bodyBytes)
+		if body != nil {
+			bodyReader = bytes.NewReader(body)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
 		if err != nil {
 			return nil, fmt.Errorf("creating request: %w", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Content-Type", "application/json")
+		for k, v := range header {
+			req.Header[k] = v
+		}
 
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -154,13 +164,13 @@ func parseGraphError(resp *http.Response) error {
 		if parsed {
 			detail = fmt.Sprintf(" (%s: %s)", ge.Error.Code, ge.Error.Message)
 		}
-		return fmt.Errorf("permission denied%s — check the chat ID/alias and that Chat.Read, ChatMessage.Send and Files.Read.All are granted in your Azure app registration", detail)
+		return fmt.Errorf("permission denied%s — check the chat ID/alias and that Chat.Read, ChatMessage.Send, Files.Read.All and Files.ReadWrite are granted in your Azure app registration", detail)
 	case 404:
 		detail := ""
 		if parsed {
 			detail = fmt.Sprintf(" (%s: %s)", ge.Error.Code, ge.Error.Message)
 		}
-		return fmt.Errorf("not found%s — check the chat ID or alias", detail)
+		return fmt.Errorf("not found%s — check the chat ID or alias, and any message ID", detail)
 	}
 
 	if parsed {

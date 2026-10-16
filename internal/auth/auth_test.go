@@ -108,6 +108,27 @@ func TestGetTokenInvalidGrant(t *testing.T) {
 	}
 }
 
+func TestGetTokenConsentRequired(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"invalid_grant","error_description":"AADSTS65001: The user or administrator has not consented to use the application."}`))
+	}))
+	defer srv.Close()
+	setupEnv(t, srv.URL)
+	saveTestCache(t, expiredCache())
+
+	_, err := GetToken(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, want := range []string{"new permission", "README", "tcli login"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %q, got: %v", want, err)
+		}
+	}
+}
+
 func TestGetTokenServerUnreachable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	url := srv.URL
