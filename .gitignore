@@ -30,7 +30,6 @@ go.work.sum
 
 # Project binary
 tcli
-CLAUDE.md
 
 .cursor
 PLAN.md
