@@ -32,7 +32,9 @@ func TestSendMessageAttachments(t *testing.T) {
 			var raw map[string]json.RawMessage
 			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 				if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-					t.Fatalf("decode: %v", err)
+					t.Errorf("decode: %v", err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
 				}
 				writeJSON(t, w, map[string]any{"id": "m1"})
 			})

@@ -172,4 +172,5 @@ Existing files are never overwritten — a numeric suffix is added instead (`rep
 | `not logged in` / `session expired` | Run `tcli login`. |
 | `tcli needs a new permission (AADSTS65001 …)` after upgrading tcli | A new permission was added (most recently `Files.ReadWrite`). Add it as in step 2.4, then run `tcli login` again. |
 | A recipient can't open a file you sent | tcli prints a `could not share … with …` warning when that happens — usually an external member your organisation's sharing policy excludes. Share the file from OneDrive (Microsoft Teams Chat Files) manually. |
+| `rate limited by Graph API — retry in …` / `Graph API unavailable (HTTP 503) …` | Microsoft Graph is throttling you or briefly unavailable. tcli retries short waits (up to 60s) itself; for longer ones it stops and tells you how long to wait before running the command again. |
 | `tcli: command not found` | `~/.local/bin` is not on your `PATH` — see step 1. |

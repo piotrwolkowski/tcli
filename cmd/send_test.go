@@ -58,6 +58,7 @@ func TestMessageTextStdin(t *testing.T) {
 		{"empty stdin", "", []string{"-"}, false, ""},
 		{"only newlines", "\n\n\n", []string{"-"}, false, ""},
 		{"interior newlines preserved", "a\n\nb\nc\n", []string{"-"}, false, "a\n\nb\nc"},
+		{"interior CRLF becomes LF", "a\r\nb\r\n", []string{"-"}, false, "a\nb"},
 		{"leading and trailing spaces preserved", "  a  \n", []string{"-"}, false, "  a  "},
 		{"unicode", "привет 👍\n", []string{"-"}, false, "привет 👍"},
 		{"argument ignores stdin", "ignored", []string{"arg"}, false, "arg"},

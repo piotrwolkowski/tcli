@@ -6,17 +6,6 @@ import (
 	"testing"
 )
 
-func writeAliasesFile(t *testing.T, home, content string) {
-	t.Helper()
-	dir := filepath.Join(home, ".config", "tcli")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "aliases.json"), []byte(content), 0600); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestLoadAliasesEmptyCases(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -31,7 +20,7 @@ func TestLoadAliasesEmptyCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			home := isolate(t)
 			if tt.write {
-				writeAliasesFile(t, home, tt.content)
+				writeConfigDirFile(t, home, "aliases.json", tt.content)
 			}
 			a, err := LoadAliases()
 			if err != nil {
@@ -58,7 +47,7 @@ func TestLoadAliasesInvalid(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := isolate(t)
-			writeAliasesFile(t, home, content)
+			writeConfigDirFile(t, home, "aliases.json", content)
 			if a, err := LoadAliases(); err == nil {
 				t.Errorf("expected error, got %v", a)
 			}

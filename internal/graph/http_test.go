@@ -261,7 +261,9 @@ func TestSendMessage(t *testing.T) {
 				}
 				var raw map[string]map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-					t.Fatalf("decoding body: %v", err)
+					t.Errorf("decoding body: %v", err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
 				}
 				ct, has := raw["body"]["contentType"]
 				if tt.wantContentType == "" && has {

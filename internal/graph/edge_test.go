@@ -15,48 +15,6 @@ import (
 	"time"
 )
 
-// --- retryAfter ---------------------------------------------------------
-
-func TestRetryAfterEdgeCases(t *testing.T) {
-	tests := []struct {
-		name    string
-		header  string
-		attempt int
-		want    time.Duration
-	}{
-		{"zero", "0", 0, 0},
-		{"zero ignores attempt", "0", 2, 0},
-		{"negative clamps to zero", "-5", 0, 0},
-		{"HTTP-date falls back to backoff", "Wed, 21 Oct 2026 07:28:00 GMT", 1, 4 * time.Second},
-		{"float falls back to backoff", "1.5", 0, 2 * time.Second},
-		{"whitespace-padded falls back to backoff", " 5 ", 0, 2 * time.Second},
-		{"just under the cap", "59", 0, 59 * time.Second},
-		{"at the cap", "60", 0, maxRetryWait},
-		{"large value is capped", "86400", 0, maxRetryWait},
-		{"empty header uses backoff", "", 2, 8 * time.Second},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := makeResp(429, "")
-			if tt.header != "" {
-				resp.Header.Set("Retry-After", tt.header)
-			}
-			if got := retryAfter(resp, tt.attempt); got != tt.want {
-				t.Errorf("retryAfter(%q, %d) = %v, want %v", tt.header, tt.attempt, got, tt.want)
-			}
-		})
-	}
-}
-
-// A huge Retry-After must not overflow time.Duration into a negative
-// (immediate) wait; it is capped like any other large value.
-func TestRetryAfterHugeValueCapped(t *testing.T) {
-	resp := makeRespWithHeader(429, "", "Retry-After", "10000000000") // 1e10 s
-	if got := retryAfter(resp, 0); got != maxRetryWait {
-		t.Errorf("retryAfter(1e10) = %v, want %v", got, maxRetryWait)
-	}
-}
-
 // --- parseGraphError ----------------------------------------------------
 
 func TestParseGraphErrorEdgeCases(t *testing.T) {
@@ -144,7 +102,7 @@ func TestSendContextCancelledWhileWaitingToRetry(t *testing.T) {
 	var calls atomic.Int32
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		w.Header().Set("Retry-After", "3600")
+		w.Header().Set("Retry-After", "30") // within maxRetryWait, so send waits instead of failing fast
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
 	c.http = &http.Client{Transport: cancelAfterResponse{rt: http.DefaultTransport, cancel: cancel}}
@@ -161,7 +119,7 @@ func TestSendContextDeadlineWhileWaiting(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Retry-After", "3600")
+		w.Header().Set("Retry-After", "30") // within maxRetryWait, so send waits instead of failing fast
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
 	if _, err := c.Me(ctx); !errors.Is(err, context.DeadlineExceeded) {
@@ -282,21 +240,197 @@ func TestSendTransportError(t *testing.T) {
 	}
 }
 
-func TestSendNon429ClientErrorsNotRetried(t *testing.T) {
-	for _, status := range []int{400, 401, 403, 404, 500, 503} {
-		t.Run(fmt.Sprint(status), func(t *testing.T) {
-			var calls int
-			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				w.WriteHeader(status)
-			})
-			if _, err := c.Me(context.Background()); err == nil {
-				t.Fatal("want error")
+// TestSendRetryBehaviour pins which responses send retries: 429 for every
+// method, 503/504 only for requests that are safe to repeat (GET and PUT), and
+// nothing else. Retry-After is always 0 so no case sleeps.
+func TestSendRetryBehaviour(t *testing.T) {
+	const (
+		postBody = `{"body":{"content":"hi"}}`
+		putBody  = "chunk-bytes"
+	)
+	tests := []struct {
+		name      string
+		method    string
+		statuses  []int // status per call; the last one repeats
+		wantCalls int
+		wantErr   string // empty means success
+	}{
+		{"GET 503 then 200", "GET", []int{503, 200}, 2, ""},
+		{"GET 504 then 200", "GET", []int{504, 200}, 2, ""},
+		{"PUT 503 then 202", "PUT", []int{503, 202}, 2, ""},
+		{"PUT 504 then 202", "PUT", []int{504, 202}, 2, ""},
+		{"GET 429 then 200", "GET", []int{429, 200}, 2, ""},
+		{"POST 429 then 201", "POST", []int{429, 201}, 2, ""},
+		{"PUT 429 then 202", "PUT", []int{429, 202}, 2, ""},
+		{"GET 429 twice then 200", "GET", []int{429, 429, 200}, 3, ""},
+
+		{"POST 503 is not retried", "POST", []int{503, 200}, 1, "Graph API unavailable (HTTP 503) — try again later"},
+		{"POST 504 is not retried and warns it may have gone through", "POST", []int{504, 200}, 1, "check the chat before retrying"},
+
+		{"GET 503 exhausts retries", "GET", []int{503}, maxRetries + 1, "Graph API unavailable (HTTP 503) — try again later"},
+		{"GET 504 exhausts retries", "GET", []int{504}, maxRetries + 1, "Graph API unavailable (HTTP 504) — try again later"},
+		{"PUT 503 exhausts retries", "PUT", []int{503}, maxRetries + 1, "Graph API unavailable (HTTP 503) — try again later"},
+		{"GET 429 exhausts retries", "GET", []int{429}, maxRetries + 1, "rate limited by Graph API — try again later"},
+		{"POST 429 exhausts retries", "POST", []int{429}, maxRetries + 1, "rate limited by Graph API — try again later"},
+	}
+	// Other errors are final for every method, including PUT.
+	for _, tc := range []struct {
+		status  int
+		wantErr string
+	}{
+		{400, "Graph API error 400"},
+		{401, "unauthorized"},
+		{403, "permission denied"},
+		{404, "not found"},
+		{500, "Graph API error 500"},
+	} {
+		for _, method := range []string{"GET", "POST", "PUT"} {
+			tests = append(tests, struct {
+				name      string
+				method    string
+				statuses  []int
+				wantCalls int
+				wantErr   string
+			}{fmt.Sprintf("%s %d is not retried", method, tc.status), method, []int{tc.status, 200}, 1, tc.wantErr})
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantBody := ""
+			switch tt.method {
+			case "POST":
+				wantBody = postBody
+			case "PUT":
+				wantBody = putBody
 			}
-			if calls != 1 {
-				t.Errorf("calls = %d, want 1", calls)
+
+			var calls atomic.Int32
+			c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				i := int(calls.Add(1)) - 1
+				// The body must be replayed in full on every attempt.
+				if b, _ := io.ReadAll(r.Body); string(b) != wantBody {
+					t.Errorf("call %d: body = %q, want %q", i+1, b, wantBody)
+				}
+				w.Header().Set("Retry-After", "0")
+				w.WriteHeader(tt.statuses[min(i, len(tt.statuses)-1)])
+			})
+
+			var resp *http.Response
+			var err error
+			switch tt.method {
+			case "PUT": // upload-chunk style: absolute URL, no auth, via send
+				resp, err = c.send(context.Background(), "PUT", srv.URL+"/chunk", []byte(putBody), nil)
+			case "POST":
+				resp, err = c.do(context.Background(), "POST", "/x", strings.NewReader(postBody))
+			default:
+				resp, err = c.do(context.Background(), tt.method, "/x", nil)
+			}
+			if err == nil {
+				resp.Body.Close()
+			}
+
+			if got := int(calls.Load()); got != tt.wantCalls {
+				t.Errorf("calls = %d, want %d", got, tt.wantCalls)
+			}
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("err = %v, want success", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+			}
+			// A final (non-retry) error must not claim the request will work later.
+			if !strings.Contains(tt.wantErr, "try again later") && strings.Contains(err.Error(), "try again later") {
+				t.Errorf("err = %q, must not suggest retrying", err)
 			}
 		})
+	}
+}
+
+// When Graph asks for a wait longer than maxRetryWait, send must fail at once
+// (one call, no sleeping) and tell the user how long to wait.
+func TestSendFailsFastWhenRetryAfterTooLong(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		status     int
+		retryAfter string
+		wantErr    string
+	}{
+		{"429 Retry-After 120", "GET", 429, "120", "rate limited by Graph API — retry in 2m0s"},
+		{"POST 429 Retry-After 120", "POST", 429, "120", "rate limited by Graph API — retry in 2m0s"},
+		{"GET 503 Retry-After 61", "GET", 503, "61", "Graph API unavailable (HTTP 503) — retry in 1m1s"},
+		{"GET 504 Retry-After 3600", "GET", 504, "3600", "Graph API unavailable (HTTP 504) — retry in 1h0m0s"},
+		{"429 Retry-After 1e10 is capped, not overflowed", "GET", 429, "10000000000", "rate limited by Graph API — retry in "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// The timeout only bounds a regression to the old sleeping behaviour.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			var calls atomic.Int32
+			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Retry-After", tt.retryAfter)
+				w.WriteHeader(tt.status)
+			})
+
+			start := time.Now()
+			resp, err := c.do(ctx, tt.method, "/x", nil)
+			elapsed := time.Since(start)
+			if err == nil {
+				resp.Body.Close()
+				t.Fatal("want error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("err = %q, want containing %q", err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), "try again later") {
+				t.Errorf("err = %q, want a retry-in duration instead of try again later", err)
+			}
+			if got := calls.Load(); got != 1 {
+				t.Errorf("calls = %d, want 1", got)
+			}
+			if elapsed >= time.Second {
+				t.Errorf("took %v, want an immediate failure", elapsed)
+			}
+		})
+	}
+}
+
+// A 503 on a POST is not retried, so even a long Retry-After must not turn it
+// into a "retry in" message: the generic error is returned immediately.
+func TestSendPostUnavailableIgnoresRetryAfter(t *testing.T) {
+	var calls atomic.Int32
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	_, err := c.do(context.Background(), "POST", "/x", strings.NewReader("{}"))
+	if err == nil || !strings.Contains(err.Error(), "503") || strings.Contains(err.Error(), "retry in") {
+		t.Fatalf("err = %v, want a plain 503 error without a retry hint", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want 1", got)
+	}
+}
+
+// retryable is the single gate for retrying; pin its full truth table.
+func TestRetryable(t *testing.T) {
+	methods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}
+	for _, method := range methods {
+		for _, status := range []int{200, 201, 204, 302, 400, 401, 403, 404, 408, 409, 429, 500, 501, 502, 503, 504} {
+			want := status == 429 ||
+				((status == 503 || status == 504) && (method == "GET" || method == "PUT"))
+			if got := retryable(method, status); got != want {
+				t.Errorf("retryable(%s, %d) = %v, want %v", method, status, got, want)
+			}
+		}
 	}
 }
 
@@ -1243,7 +1377,9 @@ func TestReactionEdge(t *testing.T) {
 					b, _ := io.ReadAll(r.Body)
 					var got map[string]string
 					if err := json.Unmarshal(b, &got); err != nil {
-						t.Fatalf("decoding %q: %v", b, err)
+						t.Errorf("decoding %q: %v", b, err)
+						w.WriteHeader(http.StatusBadRequest)
+						return
 					}
 					if len(got) != 1 || got["reactionType"] != emoji {
 						t.Errorf("body = %v, want reactionType %q", got, emoji)
